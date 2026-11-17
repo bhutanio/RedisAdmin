@@ -21,33 +21,63 @@ You can find an example database at
 Installing/Configuring
 ======================
 
-To install [phpRedisAdmin](https://packagist.org/packages/erik-dubbelboer/php-redis-admin) through [composer](http://getcomposer.org/) you need to execute the following commands:
+Install [Composer using its verified installer](https://getcomposer.org/download/), then run:
 
 ```
-curl -s http://getcomposer.org/installer | php
-php composer.phar create-project -s dev erik-dubbelboer/php-redis-admin path/to/install
+composer create-project erik-dubbelboer/php-redis-admin path/to/install
 ```
 
 You may also want to copy includes/config.sample.inc.php to includes/config.inc.php
 and edit it with your specific redis configuration.
 
-Instead of using composer, you can also do a manual install using:
+To install from a Git checkout, install its locked dependencies with Composer:
 
 ```
 git clone https://github.com/ErikDubbelboer/phpRedisAdmin.git
 cd phpRedisAdmin
-git clone https://github.com/nrk/predis.git vendor
+composer install
 ```
 
 Docker Image
 ============
-A public [phpRedisAdmin Docker image](https://hub.docker.com/r/erikdubbelboer/phpredisadmin/) is available on Docker Hub [automatically built](https://docs.docker.com/docker-hub/builds/) from latest source.
+A public [phpRedisAdmin Docker image](https://hub.docker.com/r/erikdubbelboer/phpredisadmin/) is available on Docker Hub built from the latest tag.
 The file ```includes/config.environment.inc.php``` is used as the configuration file to allow environment variables to be used as configuration values.
+**Authentication is required.** Set `ADMIN_USER` and `ADMIN_PASS` before exposing the container.
+If you intentionally need unauthenticated access, set `ALLOW_NO_AUTH=true` (not recommended outside
+isolated local development).
+
 Example:
 ```
-docker run --rm -it -e REDIS_1_HOST=myredis.host -e REDIS_1_NAME=MyRedis -p 80:80 erikdubbelboer/phpredisadmin
+docker run --rm -it \
+  -e ADMIN_USER=myuser \
+  -e ADMIN_PASS=mysecretpassword \
+  -e REDIS_1_HOST=myredis.host \
+  -e REDIS_1_NAME=MyRedis \
+  -p 80:80 erikdubbelboer/phpredisadmin
 ```
-Also, a Docker Compose manifest with a stack for testing and development is provided. Just issue ```docker-compose up --build``` to start it and browse to http://localhost. See ```docker-compose.yml``` file for configuration details.
+The Docker Compose manifest also requires credentials. Start it with:
+
+```
+ADMIN_USER=myuser ADMIN_PASS=mysecretpassword docker-compose up --build
+```
+
+Source installations require a configured `login` or `login_as_acl_auth` entry. An operator can set
+`allow_no_auth` to `true` in `includes/config.inc.php` only for an intentionally isolated development
+instance.
+
+Environment variables summary
+====
+
+* ``REDIS_1_HOST`` - define host of the Redis server
+* ``REDIS_1_NAME`` - define name of the Redis server
+* ``REDIS_1_PORT`` - define port of the Redis server
+* ``REDIS_1_SCHEME`` - define scheme of the Redis server (tcp or tls)
+* ``REDIS_1_AUTH`` - define password of the Redis server
+* ``REDIS_1_AUTH_FILE`` - define file containing the password of the Redis server
+* ``REDIS_1_DATABASES`` - You can modify you config to prevent phpRedisAdmin from using CONFIG command 
+* ``ADMIN_USER`` - define username for user-facing HTTP authentication
+* ``ADMIN_PASS`` - define password for user-facing HTTP authentication
+* ``ALLOW_NO_AUTH`` - set to `true` only to opt into unauthenticated access on an isolated development instance
 
 TODO
 ====

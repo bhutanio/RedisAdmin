@@ -1,12 +1,17 @@
 <?php
 
 require_once 'includes/common.inc.php';
+global $redis, $config, $csrfToken, $server;
 
 if (!empty($config['cookie_auth'])) {
     // Cookie-based auth
     setcookie('phpRedisAdminLogin', '', 1);
     header("Location: login.php");
     die();
+} else if (isset($config['login_as_acl_auth'])) {
+    // HTTP Basic auth
+    header('HTTP/1.1 401 Unauthorized');
+    die('<html><head><meta http-equiv="refresh" content="0; url=/index.php" /></head></html>');
 } else {
     // HTTP Digest auth
     $needed_parts = array(
@@ -47,7 +52,5 @@ if (!empty($config['cookie_auth'])) {
     }
 
 
-    header('Location: '.substr($_SERVER['REQUEST_URI'], 0, strpos($_SERVER['REQUEST_URI'], 'logout.php')));
+    header('Location: logout.php');
 }
-
-?>

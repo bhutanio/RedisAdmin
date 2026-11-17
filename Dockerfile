@@ -1,12 +1,15 @@
-FROM composer:1.7
+FROM composer:2.10.3
 
-ADD . /src/app/
+RUN apk add --no-cache tini tzdata
+
 WORKDIR /src/app
 
-RUN \
-  composer install && \
-  cp includes/config.environment.inc.php includes/config.inc.php
+COPY . .
 
+RUN set -xe; \
+    composer install; \
+    cp includes/config.environment.inc.php includes/config.inc.php
+
+ENV PORT 80
 EXPOSE 80
-
-ENTRYPOINT [ "php", "-S", "0.0.0.0:80" ]
+ENTRYPOINT [ "sh", "-c", "tini -- php -S 0.0.0.0:$PORT" ]

@@ -1,13 +1,16 @@
 <?php
 
 require_once 'includes/common.inc.php';
+global $redis, $config, $csrfToken, $server;
+
+if (isset($_GET['key'])) {
+  require_key_in_server_filter($_GET['key']);
+}
 
 $page['css'][] = 'frame';
 $page['js'][]  = 'frame';
 
 require 'includes/header.inc.php';
-
-
 
 if (!isset($_GET['key'])) {
   ?>
@@ -18,16 +21,22 @@ if (!isset($_GET['key'])) {
   die;
 }
 
-
-
-$type   = $redis->type($_GET['key']);
-$exists = $redis->exists($_GET['key']);
+$type   = ''; 
+$exists = false;
+try {
+  $type   = $redis->type($_GET['key']);
+  $exists = $redis->exists($_GET['key']);
+} catch (\Predis\Response\ServerException $th) {
+  ?>
+  <div class="exception">
+    <h3><?php echo $th->getMessage() ?></h3>
+  </div>
+  <?php
+}
 
 $count_elements_page = isset($config['count_elements_page']) ? $config['count_elements_page'] : false;
 $page_num_request    = isset($_GET['page']) ? (int)$_GET['page'] : 1;
 $page_num_request    = $page_num_request === 0 ? 1 : $page_num_request;
-
-
 
 ?>
 <h2><?php echo format_html($_GET['key'])?>
@@ -48,8 +57,6 @@ if (!$exists) {
   die;
 }
 
-
-
 $alt      = false;
 $ttl      = $redis->ttl($_GET['key']);
 
@@ -58,7 +65,6 @@ try {
 } catch (Exception $e) {
   $encoding = null;
 }
-
 
 switch ($type) {
   case 'string':
@@ -96,6 +102,9 @@ switch ($type) {
     }
     $size = count($values);
     break;
+    
+  default:
+    $size = -1;
 }
   
 if (isset($values) && ($count_elements_page !== false)) {
@@ -113,7 +122,19 @@ if (isset($values) && ($count_elements_page !== false)) {
 <tr><td><div>Encoding:</div></td><td><div><?php echo format_html($encoding)?></div></td></tr>
 <?php } ?>
 
-<tr><td><div>Size:</div></td><td><div><?php echo $size?> <?php echo ($type == 'string') ? 'characters' : 'items'?></div></td></tr>
+<tr><td><div>Size:</div></td><td><div>
+<?php 
+echo $size;
+
+if ($type == 'string') {
+    echo " characters";
+} else if ($size < 0) {
+    echo " (Type Unsupported)";
+} else {
+    echo " items";
+}
+?>
+</div></td></tr>
 
 </table>
 
@@ -129,7 +150,7 @@ if (($count_elements_page !== false) && in_array($type, array('hash', 'list', 's
     $lpm1       = $lastpage - 1;
     $adjacents  = 3;
     $pagination = '<div style="width: inherit; word-wrap: break-word;">';
-    $url        = preg_replace('/&page=(\d+)/i', '', $_SERVER['REQUEST_URI']);
+    $url        = preg_replace('/&page=(\d+)/i', '', getRelativePath('view.php'));
 
     if ($page_num_request > 1) $pagination .= "<a href=\"$url&page=$prev\">&#8592;</a>&nbsp;"; else
         $pagination .= "&#8592;&nbsp;";
@@ -250,7 +271,7 @@ else if ($type == 'set') {
 <tr><th><div>Value</div></th><th><div>&nbsp;</div></th><th><div>&nbsp;</div></th></tr>
 
 <?php foreach ($values as $value) {
-  $display_value = $redis->exists($value) ? '<a href="view.php?s='.$server['id'].'&d='.$server['db'].'&key='.urlencode($value).'">'.format_html($value).'</a>' : format_html($value);
+  $display_value = filtered_key_exists($redis, $value) ? '<a href="view.php?s='.$server['id'].'&d='.$server['db'].'&key='.urlencode($value).'">'.format_html($value).'</a>' : format_html($value);
 ?>
   <tr <?php echo $alt ? 'class="alt"' : ''?>><td><div class=data><?php echo $display_value ?></div></td><td><div>
     <a href="edit.php?s=<?php echo $server['id']?>&amp;d=<?php echo $server['db']?>&amp;type=set&amp;key=<?php echo urlencode($_GET['key'])?>&amp;value=<?php echo urlencode($value)?>"><img src="images/edit.png" width="16" height="16" title="Edit" alt="[E]"></a>
@@ -271,7 +292,7 @@ else if ($type == 'zset') { ?>
 
 <?php foreach ($values as $value) {
   $score         = $redis->zScore($_GET['key'], $value);
-  $display_value = $redis->exists($value) ? '<a href="view.php?s='.$server['id'].'&d='.$server['db'].'&key='.urlencode($value).'">'.format_html($value).'</a>' : format_html($value);
+  $display_value = filtered_key_exists($redis, $value) ? '<a href="view.php?s='.$server['id'].'&d='.$server['db'].'&key='.urlencode($value).'">'.format_html($value).'</a>' : format_html($value);
 ?>
   <tr <?php echo $alt ? 'class="alt"' : ''?>><td><div><?php echo $score?></div></td><td><div class=data><?php echo $display_value ?></div></td><td><div>
     <a href="edit.php?s=<?php echo $server['id']?>&amp;d=<?php echo $server['db']?>&amp;type=zset&amp;key=<?php echo urlencode($_GET['key'])?>&amp;score=<?php echo $score?>&amp;value=<?php echo urlencode($value)?>"><img src="images/edit.png" width="16" height="16" title="Edit" alt="[E]"></a>
@@ -294,4 +315,3 @@ if (isset($pagination)) {
 }
 
 require 'includes/footer.inc.php';
-

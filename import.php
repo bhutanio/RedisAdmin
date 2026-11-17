@@ -1,19 +1,43 @@
 <?php
 
 require_once 'includes/common.inc.php';
-
-
-
+global $redis, $config, $csrfToken, $server;
 
 // This mess could need some cleanup!
 if (isset($_POST['commands'])) {
   // Append some spaces at the end to make sure we always have enough arguments for the last function.
-  $commands = str_getcsv(str_replace(array("\r", "\n"), array('', ' '), $_POST['commands']).'    ', ' ');
+  $commands = str_getcsv(str_replace(array("\r", "\n"), array('', ' '), $_POST['commands']).'    ', ' ', '"', '\\');
 
   foreach ($commands as &$command) {
     $command = stripslashes($command);
   }
   unset($command);
+
+  // Authorize every target before the first Redis command. This prevents a
+  // rejected import from leaving earlier, allowed commands partially applied.
+  for ($i = 0; $i < count($commands); ++$i) {
+    if (empty($commands[$i])) {
+      continue;
+    }
+
+    $command = strtoupper($commands[$i]);
+    switch ($command) {
+      case 'HSET':
+      case 'LSET':
+      case 'ZADD':
+        require_key_in_server_filter($commands[$i+1]);
+        $i += 3;
+        break;
+
+      case 'SET':
+      case 'LPUSH':
+      case 'RPUSH':
+      case 'SADD':
+        require_key_in_server_filter($commands[$i+1]);
+        $i += 2;
+        break;
+    }
+  }
 
   for ($i = 0; $i < count($commands); ++$i) {
     if (empty($commands[$i])) {
@@ -91,7 +115,8 @@ require 'includes/header.inc.php';
 
 ?>
 <h2>Import</h2>
-<form action="<?php echo format_html($_SERVER['REQUEST_URI'])?>" method="post">
+<form action="<?php echo format_html(getRelativePath('import.php'))?>" method="post">
+<input type="hidden" name="csrf" value="<?php echo $csrfToken; ?>" />
 
 <p>
 <label for="commands">Commands:<br>
@@ -110,9 +135,7 @@ ZADD
 <textarea name="commands" id="commands" cols="80" rows="20"></textarea>
 </p>
 
-<p>
 <input type="submit" class="button" value="Import">
-</p>
 
 </form>
 <?php

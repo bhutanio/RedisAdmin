@@ -1,6 +1,7 @@
 <?php
 
 require_once 'includes/common.inc.php';
+global $redis, $config, $csrfToken, $server;
 
 if($redis) {
 
@@ -9,18 +10,22 @@ if($redis) {
     } else {
         $next = 0;
         $keys = array();
-
         while (true) {
             $r = $redis->scan($next, 'MATCH', $server['filter'], 'COUNT', $server['scansize']);
-
             $next = $r[0];
             $keys = array_merge($keys, $r[1]);
-
             if ($next == 0) {
+                break;
+            }
+            if ($server['scanmax'] > 0 && count($keys) >= $server['scanmax']) {
                 break;
             }
         }
     }
+
+    // Redis MATCH follows host char signedness (amd64 signed, arm64 unsigned).
+    // PHP-filter the result so a key is listed only when both ABIs agree.
+    $keys = filter_keys_for_server($keys);
 
     sort($keys);
 
@@ -33,7 +38,11 @@ if($redis) {
         continue;
       }
 
-      $key = explode($server['seperator'], $key);
+      $key = explode($server['seperator'], $key); //@todo: may be separator ?
+      if ($config['showEmptyNamespaceAsKey'] && $key[count($key) - 1] == '') {
+        array_pop($key);
+        $key[count($key) - 1] .= ':';
+      }
 
       // $d will be a reference to the current namespace.
       $d = &$namespaces;
@@ -77,7 +86,13 @@ if($redis) {
 
         // Get the number of items in the key.
         if (!isset($config['faster']) || !$config['faster']) {
-          switch ($redis->type($fullkey)) {
+          $type = '';
+          try {
+            $type = $redis->type($fullkey);
+          } catch (\Predis\Response\ServerException $th) {
+            $class[] = 'empty';
+          }
+          switch ($type) {
             case 'hash':
               $len = $redis->hLen($fullkey);
               break;
@@ -96,10 +111,15 @@ if($redis) {
           }
         }
 
+        if (empty($name) && $name != '0') {
+          $name = '<empty>';
+          $class[] = 'empty';
+        }
 
         ?>
         <li<?php echo empty($class) ? '' : ' class="'.implode(' ', $class).'"'?>>
-        <a href="?view&amp;s=<?php echo $server['id']?>&amp;d=<?php echo $server['db']?>&amp;key=<?php echo urlencode($fullkey)?>"><?php echo format_html($name)?><?php if ($len !== false) { ?><span class="info">(<?php echo $len?>)</span><?php } ?></a>
+        <input type="checkbox" name="checked_keys" value="<?php echo format_html($fullkey)?>"/>
+        <a href="?view&amp;s=<?php echo $server['id']?>&amp;d=<?php echo $server['db']?>&amp;key=<?php echo urlencode($fullkey)?>" title="<?php echo format_html($name)?>"><?php echo format_html($name)?><?php if ($len !== false) { ?><span class="info">(<?php echo $len?>)</span><?php } ?></a>
         </li>
         <?php
       }
@@ -133,7 +153,28 @@ if($redis) {
       }
     }
 
+    function getDbInfo($d, $info, $padding = '') {
+      global $config, $server;
+      $prefix = "database ";
+      $db = "db$d";
+
+      $dbHasData = array_key_exists("db$d", $info['Keyspace']);
+
+      if (!$dbHasData && ((isset($server['hide']) && $server['hide']) || (!isset($server['hide']) && $config['hideEmptyDBs']))) {
+        return false; // we don't show empty dbs, so return false to tell the caller to continue the loop
+      }
+
+      $dbinfo = sprintf("$prefix%'.-{$padding}d", $d);
+      if ($dbHasData) {
+        $dbinfo = sprintf("%s (%d)", $dbinfo, $info['Keyspace'][$db]['keys']);
+      }
+      $dbinfo = str_replace('.', '&nbsp;&nbsp;', $dbinfo); // 2 spaces per character are needed to get the alignment right
+
+      return $dbinfo;
+    }
+
 }  // if redis
+
 
 
 // This is basically the same as the click code in index.js.
@@ -143,7 +184,9 @@ if (count($_GET) == 0) {
 } else {
   $iframe = substr($_SERVER['REQUEST_URI'], strpos($_SERVER['REQUEST_URI'], '?') + 1);
 
-  if (strpos($iframe, '&') !== false) {
+  if (strpos($iframe, '//') === 0 || strpos($iframe, 'http') === 0) {
+    $iframe = 'overview.php';
+  } else if (strpos($iframe, '&') !== false) {
     $iframe = substr_replace($iframe, '.php?', strpos($iframe, '&'), 1);
   } else {
     $iframe .= '.php';
@@ -160,7 +203,7 @@ require 'includes/header.inc.php';
 
 ?>
 <div id="sidebar">
-
+<div id="header">
 <h1 class="logo"><a href="?overview&amp;s=<?php echo $server['id']?>&amp;d=<?php echo $server['db']?>">phpRedisAdmin</a></h1>
 
 <p>
@@ -179,10 +222,11 @@ if (isset($server['databases'])) {
   $databases = $redis->config('GET', 'databases');
   $databases = $databases['databases'];
 }
+$info = $redis->info(); $len = strlen((string)($databases-1));
 if ($databases > 1) { ?>
   <select id="database">
-  <?php for ($d = 0; $d < $databases; ++$d) { ?>
-  <option value="<?php echo $d?>" <?php echo ($server['db'] == $d) ? 'selected="selected"' : ''?>>database <?php echo $d?></option>
+  <?php for ($d = 0; $d < $databases; ++$d) { if (($dbinfo=getDbInfo($d, $info, $len)) === false) continue; ?>
+  <option value="<?php echo $d?>" <?php echo ($server['db'] == $d) ? 'selected="selected"' : ''?>><?php echo "$dbinfo"; ?></option>
   <?php } ?>
   </select>
 <?php } ?>
@@ -195,7 +239,7 @@ if ($databases > 1) { ?>
 <a href="?info&amp;s=<?php echo $server['id']?>&amp;d=<?php echo $server['db']?>"><img src="images/info.png" width="16" height="16" title="Info" alt="[I]"></a>
 <a href="?export&amp;s=<?php echo $server['id']?>&amp;d=<?php echo $server['db']?>"><img src="images/export.png" width="16" height="16" title="Export" alt="[E]"></a>
 <a href="?import&amp;s=<?php echo $server['id']?>&amp;d=<?php echo $server['db']?>"><img src="images/import.png" width="16" height="16" title="Import" alt="[I]"></a>
-<?php if (isset($server['flush']) && $server['flush']) { ?>
+<?php if (server_can_flush($server)) { ?>
 <a href="?flush&amp;s=<?php echo $server['id']?>&amp;d=<?php echo $server['db']?>" id="flush"><img src="images/flush.png" width="16" height="16" title="Flush" alt="[F]"></a>
 <?php } ?>
 </p>
@@ -212,8 +256,15 @@ if ($databases > 1) { ?>
 <p>
 <input type="text" id="filter" size="24" value="type here to filter" placeholder="type here to filter" class="info">
 </p>
-
+<button id="selected_all_keys">Select all</button>
+<button id="operations">
+<a href="delete.php?s=<?php echo $server['id']?>&amp;d=<?php echo $server['db']?>&batch_del=1&csrf=<?php echo $csrfToken; ?>" class="batch_del">Delete selected<img src="images/delete.png" style="width: 1em;height: 1em;vertical-align: middle;" title="Delete selected" alt="[X]"></a>
+</button>
+</div>
 <div id="keys">
+<div class="info">
+  scanned <?php echo count($keys) ?> keys<?php echo ($server['scanmax'] > 0 && count($keys) >= $server['scanmax']) ? ', reached scanmax' : '' ?>
+</div>
 <ul>
 <?php print_namespace($namespaces, 'Keys', '', empty($namespaces))?>
 </ul>

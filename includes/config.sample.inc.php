@@ -10,6 +10,7 @@ $config = array(
       'filter' => '*',
       'scheme' => 'tcp', // Optional. Connection scheme. 'tcp' - for TCP connection, 'unix' - for connection by unix domain socket
       'path'   => '', // Optional. Path to unix domain socket. Uses only if 'scheme' => 'unix'. Example: '/var/run/redis/redis.sock'
+      'hide'   => false, // Optional. Override global setting. Hide empty databases in the database list.
 
       // Optional Redis authentication.
       //'auth' => 'redispasswordhere' // Warning: The password is sent in plain-text to the Redis server.
@@ -28,16 +29,20 @@ $config = array(
       'databases' => 1,             // Optional number of databases (prevents use of CONFIG command).
       'filter'    => 'something:*', // Show only parts of database for speed or security reasons.
       'seperator' => '/',           // Use a different seperator on this database (default uses config default).
-      'flush'     => false,         // Set to true to enable the flushdb button for this instance.
+      'flush'     => false,         // Allow flushing this database. Requires an unrestricted key filter.
       'charset'   => 'cp1251',      // Keys and values are stored in redis using this encoding (default utf-8).
       'keys'      => false,         // Use the old KEYS command instead of SCAN to fetch all keys for this server (default uses config default).
-      'scansize'  => 1000           // How many entries to fetch using each SCAN command for this server (default uses config default).
+      'scansize'  => 1000,          // How many entries to fetch using each SCAN command for this server (default uses config default).
+      'scanmax'   => 1000,          // In each query, SCAN command may be executed several times. To shorten the duration, it is recommended to limit the total number of entries to fetch (default uses config default).
     ),*/
   ),
 
 
   'seperator' => ':',
+  'showEmptyNamespaceAsKey' => false,
 
+  // Hide empty databases in the database list (global, valid for all servers unless set at server level)
+  'hideEmptyDBs' => false,
 
   // Uncomment to show less information and make phpRedisAdmin fire less commands to the Redis server. Recommended for a really busy Redis server.
   //'faster' => true,
@@ -55,6 +60,16 @@ $config = array(
       'servers'  => array(1) // Optional list of servers this user can access.
     )
   ),*/
+
+  // Uncomment to enable login as ACL authentication (won't work if 'login' or 'auth' is also used)
+  // Only support using one server at this moment.
+  // If you set the default user off, browsers will be redirected to login page.
+  // The user and password will be stored in browser as plaintext so using HTTPS is strongly recommended.
+  // 'login_as_acl_auth' => true,
+
+  // Authentication is required by default. Set this to true only when the
+  // application is intentionally isolated and unauthenticated access is safe.
+  'allow_no_auth' => false,
 
   // Use HTML form/cookie-based auth instead of HTTP Basic/Digest auth
   'cookie_auth' => false,
@@ -79,7 +94,8 @@ $config = array(
   'keys' => false,
 
   // How many entries to fetch using each SCAN command.
-  'scansize' => 1000
-);
+  'scansize' => 1000,
 
-?>
+  // The total number of entries to fetch. Set to 0 or -1 for no limit.
+  'scanmax' => 0
+);
